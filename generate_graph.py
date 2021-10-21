@@ -5,6 +5,11 @@ import random
 
 def gen_graph(n, m):
     graph = nx.gnm_random_graph(n, m)
+    max_weight = 100
+
+    for (u, v, w) in graph.edges(data=True):
+        w['weight'] = random.randint(1, max_weight)
+
     return graph
 
 
@@ -15,27 +20,22 @@ def show_graph(graph):
     plt.show()
 
 
-def output_edge_list(graph, one_based, filename, max_weight):
-    """ Output num node, num edge and edge list """
-    num_node = graph.number_of_nodes()
-    num_edge = graph.number_of_edges()
-    base = 1 if one_based else 0
-    edge_list = [[edge[0] + base, edge[1] + base] for edge in graph.edges()]
+def output_edge_list(graph, filename):
 
     if filename is None:
-        print(num_node, num_edge)
-        for edge in edge_list:
-            print(edge[0], edge[1], random.randint(0, max_weight))
-        return
-    with open(filename, 'a') as fout:
-        print(num_node, num_edge, file=fout)
-        for edge in edge_list:
-            print(edge[0], edge[1], random.randint(0, max_weight), file=fout)
-    print('Saved edge list in %s' % filename)
+        print(graph.number_of_nodes(), graph.number_of_edges())
+        for (u, v, w) in graph.edges(data=True):
+            print(u, v, w['weight'])
+    else:
+        with open(filename, 'a') as fout:
+            print(graph.number_of_nodes(), graph.number_of_edges(), file=fout)
+            for (u, v, w) in graph.edges(data=True):
+                print(u, v, w['weight'], file=fout)
 
 
 def create_graph_dataset(n):
-    filename = "graph_dataset.txt"
+    #filename = "graph_dataset.txt"
+    filename = None
 
     max_nodes = 100
     min_nodes = 5
@@ -51,8 +51,13 @@ def create_graph_dataset(n):
 
         graph = gen_graph(n_nodes, n_edges)
 
+        mst = nx.minimum_spanning_tree(graph)
+
+        print(sorted(mst.edges(data=True)))
+
+        #show_graph(graph)
         '''
         if i % 3 == 0:
             show_graph(graph)
         '''
-        output_edge_list(graph, False, filename, 100)
+        output_edge_list(graph, filename)
