@@ -33,31 +33,39 @@ def output_edge_list(graph, filename):
                 print(u, v, w['weight'], file=fout)
 
 
-def create_graph_dataset(n):
+def create_graph_dataset():
     #filename = "graph_dataset.txt"
     filename = None
 
     max_nodes = 100
     min_nodes = 5
 
-    for i in range(n):
 
-        n_nodes = random.randint(min_nodes, max_nodes)
+    n_nodes = 5#random.randint(min_nodes, max_nodes)
 
-        max_edges = int(n_nodes * (n_nodes - 1) / 2)
-        min_edges = n_nodes
+    max_edges = int(n_nodes * (n_nodes - 1) / 2)
+    min_edges = n_nodes
 
-        n_edges = random.randint(min_edges, max_edges)
+    n_edges = random.randint(min_edges, max_edges)
 
-        graph = gen_graph(n_nodes, n_edges)
+    graph = gen_graph(n_nodes, n_edges)
 
-        mst = nx.minimum_spanning_tree(graph)
+    mst = nx.minimum_spanning_tree(graph)
 
-        print(sorted(mst.edges(data=True)))
+    line_graph = nx.line_graph(graph)
 
-        #show_graph(graph)
-        '''
-        if i % 3 == 0:
-            show_graph(graph)
-        '''
-        output_edge_list(graph, filename)
+    print(sorted(mst.edges(data=True)))
+
+
+    #show_graph(graph)
+    '''
+    if i % 3 == 0:
+        show_graph(graph)
+    '''
+    output_edge_list(graph, filename)
+
+    print(sorted(map(sorted, line_graph.edges())))
+
+    show_graph(line_graph)
+
+    return graph, line_graph, mst
