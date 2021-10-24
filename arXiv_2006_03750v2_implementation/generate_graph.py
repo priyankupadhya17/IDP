@@ -54,18 +54,16 @@ def create_graph_dataset():
 
     line_graph = nx.line_graph(graph)
 
-    print(sorted(mst.edges(data=True)))
-
-
-    #show_graph(graph)
-    '''
-    if i % 3 == 0:
-        show_graph(graph)
-    '''
-    output_edge_list(graph, filename)
-
-    print(sorted(map(sorted, line_graph.edges())))
-
+    #print(sorted(mst.edges(data=True)))
+    show_graph(graph)
     show_graph(line_graph)
+    
 
+    line_graph_feature_dict = {}
+    for node in line_graph.nodes():
+        (u, v) = node
+        line_graph_feature_dict[node] = {'features': graph[u][v]['weight']}
+    
+    nx.set_node_attributes(line_graph, line_graph_feature_dict)
+    
     return graph, line_graph, mst

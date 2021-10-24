@@ -1,8 +1,8 @@
-from arXiv_2006_03750v2_implementation.generate_graph import create_graph_dataset
+from generate_graph import create_graph_dataset
 import torch
 #from arXiv_2006_03750v2_implementation.model import Model
-#from arXiv_2006_03750v2_implementation.dataloader import GraphDataset
-#from torch.utils.data import DataLoader
+from dataloader import GraphDataset
+from torch_geometric.loader import DataLoader
 
 
 def train():
@@ -22,12 +22,10 @@ def train():
         for batch, (graph, linegraph, mst) in enumerate(train_loader):
             #model.train()
             #optimizer.zero_grad()  # Clear gradients.
-
-            linegraph_edge_index = linegraph.edge_index
-            linegraph_features = linegraph.x
-
-            print(linegraph_features)
-            print(linegraph_edge_index)
+            
+            print(graph)
+            print(linegraph)
+            print(mst)
 
             '''
             out = model(x, edge_index_tensor)  # Perform a single forward pass.

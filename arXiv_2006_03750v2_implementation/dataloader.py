@@ -1,8 +1,8 @@
 import os
 import torch
-from torch_geometric.data import Dataset
+from torch_geometric.data import Dataset, Data
 from torch_geometric.utils import to_networkx, from_networkx
-from arXiv_2006_03750v2_implementation.generate_graph import create_graph_dataset
+from generate_graph import create_graph_dataset
 
 
 class GraphDataset(Dataset):
@@ -14,4 +14,10 @@ class GraphDataset(Dataset):
 
     def get(self, idx):
         graph, linegraph, mst = create_graph_dataset()
-        return from_networkx(graph), from_networkx(linegraph), from_networkx(mst)
+        
+        graph_from_networkx = from_networkx(graph)
+        linegraph_from_networkx = from_networkx(linegraph) 
+        mst_from_networkx = from_networkx(mst)
+        
+        
+        return graph_from_networkx, linegraph_from_networkx, mst_from_networkx
