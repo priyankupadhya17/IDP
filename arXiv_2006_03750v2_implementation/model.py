@@ -46,16 +46,17 @@ class Model(Module):
         #x = self.gat_conv3(x, edge_index)
         x = self.gat(x, edge_index)
         x = Softmax(dim=0)(x)
-        print(x)
+        
+        out = []
         
         n_nodes = x.shape[0]
         starting_node = torch.argmax(x, dim=0)
         
         
         for i in range(n_nodes):
-            print(starting_node)
+            out.append(starting_node)
             starting_node = self.decoderFunc(starting_node, x, edge_index)
         
         
-        return x
+        return out
 

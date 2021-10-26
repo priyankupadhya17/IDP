@@ -13,11 +13,11 @@ class GraphDataset(Dataset):
         return 1
 
     def get(self, idx):
-        graph, linegraph, mst = create_graph_dataset()
+        graph, linegraph, mst, line_graph_nodes = create_graph_dataset()
         
         graph_from_networkx = from_networkx(graph)
         linegraph_from_networkx = from_networkx(linegraph) 
         mst_from_networkx = from_networkx(mst)
         
         
-        return graph_from_networkx, linegraph_from_networkx, mst_from_networkx
+        return graph_from_networkx, linegraph_from_networkx, mst_from_networkx, line_graph_nodes

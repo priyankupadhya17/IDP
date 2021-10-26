@@ -58,12 +58,14 @@ def create_graph_dataset():
     show_graph(graph)
     show_graph(line_graph)
     
-
+    line_graph_nodes = []
+    
     line_graph_feature_dict = {}
     for node in line_graph.nodes():
         (u, v) = node
         line_graph_feature_dict[node] = {'features': graph[u][v]['weight']}
+        line_graph_nodes.append(node)
     
     nx.set_node_attributes(line_graph, line_graph_feature_dict)
     
-    return graph, line_graph, mst
+    return graph, line_graph, mst, line_graph_nodes
