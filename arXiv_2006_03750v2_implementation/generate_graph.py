@@ -37,14 +37,14 @@ def create_graph_dataset():
     #filename = "graph_dataset.txt"
     filename = None
 
-    max_nodes = 100
+    max_nodes = 10#100
     min_nodes = 5
 
 
-    n_nodes = 5#random.randint(min_nodes, max_nodes)
+    n_nodes = random.randint(min_nodes, max_nodes)
 
     max_edges = int(n_nodes * (n_nodes - 1) / 2)
-    min_edges = n_nodes
+    min_edges = 2 * n_nodes
 
     n_edges = random.randint(min_edges, max_edges)
 

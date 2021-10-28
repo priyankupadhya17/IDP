@@ -1,6 +1,6 @@
 from generate_graph import create_graph_dataset
 import torch
-from model import Model
+from model import Encoder, Decoder
 from dataloader import GraphDataset
 from torch_geometric.loader import DataLoader
 import networkx as nx
@@ -27,36 +27,31 @@ def create_graph_from_model_output(out, line_graph_nodes, graph):
     return G
 
 
-def loss_func(graph, mst, requires_grad):
+def loss_func(reward, prob):
+    return torch.sum(reward*prob)
     
-    mst = to_networkx(mst, to_undirected=True)
-    #show_graph(mst)
+
+
+def calc_reward(graph, requires_grad, n_nodes):
     
-    n_nodes_graph = number_of_nodes(graph)
-    n_nodes_mst = number_of_nodes(mst)
+    MAX_INDICATOR_VALUE = 1000
+    MIN_INDICATOR_VALUE = 0
     
-    l1 = nn.L1Loss()
-    
-    MAX_INDICATOR_VALUE1 = torch.tensor(1000, dtype=float, requires_grad=requires_grad)
-    MIN_INDICATOR_VALUE1 = torch.tensor(0, dtype=float, requires_grad=requires_grad)
-    
-    
-    MAX_INDICATOR_VALUE2 = torch.tensor(1000, dtype=float, requires_grad=requires_grad)
-    MIN_INDICATOR_VALUE2 = torch.tensor(0, dtype=float, requires_grad=requires_grad)
-    
-    #indicator_function = 0 if is_tree(graph) else 1000
-    indicator_function1 = l1(MAX_INDICATOR_VALUE1, MAX_INDICATOR_VALUE1 if is_tree(graph) else MIN_INDICATOR_VALUE1)
-    indicator_function2 = l1(MAX_INDICATOR_VALUE2, MAX_INDICATOR_VALUE2 if n_nodes_graph==n_nodes_mst else MIN_INDICATOR_VALUE2)    
+    # indicator_function = 0 if is_tree(graph) else 1000
+    indicator_function = MIN_INDICATOR_VALUE if is_tree(graph) else MAX_INDICATOR_VALUE
     
     sum_of_weights = 0
     for (_, _, w) in graph.edges(data=True):
         sum_of_weights += w['weight']
     
     
-    total_loss = indicator_function1 + indicator_function2 + \
-    l1(torch.tensor(sum_of_weights, dtype=float, requires_grad=requires_grad), torch.tensor(0, dtype=float, requires_grad=requires_grad))
-    return total_loss
+    reward = -torch.tensor(indicator_function + sum_of_weights, dtype=float ,requires_grad=requires_grad)
+    return reward
     
+
+def add_nodes_in_graph(graph, u, v, wt):
+    graph.add_edges_from([(int(u), int(v),{'weight': int(wt)})])
+    return graph
 
 def save_model(model):
     current_directory = os.getcwd()
@@ -65,59 +60,129 @@ def save_model(model):
     
 def train():
     batch_size = 1
-    epochs = 1000
+    epochs = 10000
+    e = 200
     device = 0 if torch.cuda.is_available() else 'cpu'
-    model = Model(hidden_dim=3, feature_dim=1).to(device)
-
-    print(model)
+    
+    encoder = Encoder().to(device)
+    decoder = Decoder(hidden_dim=3, feature_dim=1)
+    
 
     tr_loader = GraphDataset()
     train_loader = DataLoader(tr_loader, batch_size=batch_size)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer_encoder = torch.optim.Adam(encoder.parameters(), lr=0.001)
+    
     train_loss = []
     val_loss = []
 
     for epoch in range(epochs):
         
+        if epoch % e == 0:
+            print(f"Epoch {epoch}...")
+        
         # TRAINING
         for batch, (graph, linegraph, mst, line_graph_nodes) in enumerate(train_loader):
-            model.train()
-            optimizer.zero_grad()  # Clear gradients.
+            
+            encoder.train()
+            
+            optimizer_encoder.zero_grad()  # Clear gradients.
             
             linegraph.x = linegraph.features.view(linegraph.num_nodes,-1).type(torch.float)
             
-            out = model(linegraph.x, linegraph.edge_index)  # Perform a single forward pass.
+            # total number of nodes in primal graph
+            n_nodes = graph.num_nodes
             
-            # this will return a graph/tree that is created using output nodes(matched to line_graph nodes which are 
-            # further matched to graph)
-            G = create_graph_from_model_output(out, line_graph_nodes, graph)
+            # encoder returns probs of starting node
+            out = encoder(linegraph.x, linegraph.edge_index)
             
-            #show_graph(G)
+            # create an empty graph
+            G = nx.Graph()
             
-            loss = loss_func(G, mst, True)
+            # select a starting node 
+            starting_node = torch.argmax(out, dim=0)
+            
+            reward = []
+            probs = []
+            
+            node_set = set()
+            
+            for i in range(n_nodes-1):
+                
+                # add edge between nodes in primal to constructed tree
+                u = line_graph_nodes[starting_node][0]
+                v = line_graph_nodes[starting_node][1]
+                G = add_nodes_in_graph(G, u, v, graph.weight[starting_node])
+                
+                node_set.add(int(u))
+                node_set.add(int(v))
+                
+                #add prob to probs
+                probs.append(out[starting_node])
+                
+                if len(node_set) != n_nodes:
+                    # find the next node(of linegraph) from the decoder
+                    next_node = decoder.decode(starting_node, out, linegraph.edge_index, node_set, line_graph_nodes)
+                    starting_node = next_node
+                
+                reward.append(calc_reward(G, requires_grad=True, n_nodes=n_nodes))
+                
+            loss = loss_func(torch.tensor(reward, dtype=float, requires_grad=True), torch.tensor(probs, dtype=float, requires_grad=True))
+            loss.backward()  # Derive gradients.
+            optimizer_encoder.step()  # Update parameters based on gradients.
             train_loss.append(loss.item())
             
-            loss.backward()  # Derive gradients.
-            optimizer.step()  # Update parameters based on gradients.
             
         # VALIDATION
         for batch, (graph, linegraph, mst, line_graph_nodes) in enumerate(train_loader):
-            model.eval()
+            
+            encoder.eval()
             
             linegraph.x = linegraph.features.view(linegraph.num_nodes,-1).type(torch.float)
             
+            reward = []
+            probs = []
+            
+            node_set = set()
             
             with torch.no_grad():
-                # Perform a single forward pass.
-                out = model(linegraph.x, linegraph.edge_index)  
-                # this will return a graph/tree that is created using output nodes(matched to line_graph nodes which are 
-                # further matched to graph)
-                G = create_graph_from_model_output(out, line_graph_nodes, graph)
-                loss = loss_func(G, mst, False)
-                val_loss.append(loss.item())
+                # total number of nodes in primal graph
+                n_nodes = graph.num_nodes
+
+                # encoder returns probs of starting node
+                out = encoder(linegraph.x, linegraph.edge_index)
+
+                # create an empty graph
+                G = nx.Graph()
+
+                # select a starting node 
+                starting_node = torch.argmax(out, dim=0)
+                
+                
+                for i in range(n_nodes-1):
+
+                    # add edge between nodes in primal to constructed tree
+                    u = line_graph_nodes[starting_node][0]
+                    v = line_graph_nodes[starting_node][1]
+                    G = add_nodes_in_graph(G, u, v, graph.weight[starting_node])
+                    
+                    node_set.add(int(u))
+                    node_set.add(int(v))
+                    
+                    #add prob to probs
+                    probs.append(out[starting_node])
+                    
+                    if len(node_set) != n_nodes:
+                        # find the next node(of linegraph) from the decoder
+                        next_node = decoder.decode(starting_node, out, linegraph.edge_index, node_set, line_graph_nodes)
+                        starting_node = next_node
+
+                    reward.append(calc_reward(G, requires_grad=True, n_nodes=n_nodes))
             
-            if epoch % 100 == 0:
+            loss = loss_func(torch.tensor(reward), torch.tensor(probs))
+            val_loss.append(loss.item())
+            
+            if epoch % e == 0:
                 print("Original Graph:")
                 show_graph(to_networkx(graph, to_undirected=True))
                 print("LineGraph:")
@@ -126,17 +191,14 @@ def train():
                 show_graph(G)
                 print("Actual MST:")
                 show_graph(to_networkx(mst, to_undirected=True))
-            
-        if epoch % 100 == 0:
-            save_model(model)
+                print("Loss:")
+                print(loss.item())
+                
+        
+        '''
+        if epoch % e == 0:
+            save_model(encoder)
+        '''
     
     return train_loss, val_loss
-
-
-if __name__ == '__main__':
-    #create_graph_dataset(1)
-    #train()
-    print(torch.__version__)
-    device = 0 if torch.cuda.is_available() else 'cpu'
-    print(device)
 
