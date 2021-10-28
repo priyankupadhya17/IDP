@@ -55,8 +55,8 @@ def create_graph_dataset():
     line_graph = nx.line_graph(graph)
 
     #print(sorted(mst.edges(data=True)))
-    show_graph(graph)
-    show_graph(line_graph)
+    #show_graph(graph)
+    #show_graph(line_graph)
     
     line_graph_nodes = []
     
