@@ -1,6 +1,6 @@
 from generate_graph import create_graph_dataset
 import torch
-from model import Encoder, Decoder
+from model_copy import Encoder, Decoder
 from dataloader import GraphDataset
 from torch_geometric.loader import DataLoader
 import networkx as nx
@@ -29,7 +29,7 @@ def create_graph_from_model_output(out, line_graph_nodes, graph):
     return G
 
 
-def calc_optimality(mst,G, n_nodes, mst_wt):
+def calc_optimality(mst, G, n_nodes, mst_wt):
     
     #by default optimality = -1
     optimality = -1
@@ -38,12 +38,14 @@ def calc_optimality(mst,G, n_nodes, mst_wt):
     for (_, _, w) in G.edges(data=True):
         sum_of_weights += w['weight']
         
-    print(f"sum_of_weights of constructed mst = {sum_of_weights}")
-    print(f"wts of actual mst = {mst_wt}")
+    print(f"constructed mst total_wt = {sum_of_weights}")
+    print(f"actual mst total_wt= {mst_wt}")
     
-    if is_tree(G) and G.number_of_nodes == n_nodes:
+    if is_tree(G) and G.number_of_nodes() == n_nodes:
         optimality = sum_of_weights / mst_wt
+        print("*********************************")
         print(f"optimality = {optimality}")
+        print("*********************************")
     
     return optimality
 
@@ -58,8 +60,11 @@ def loss_func(reward, prob, graph, n_nodes):
     #print(f"is_tree = {is_tree(graph)}")
     #print(f"graph.number_of_nodes() = {graph.number_of_nodes()}, n_nodes = {n_nodes}")
     
-    loss = loss * (1 if is_tree(graph) else TREE_PENALTY)
-    loss = loss * (1 if graph.number_of_nodes() == n_nodes else N_NODES_PENALTY)
+    #loss = loss * (1 if is_tree(graph) else TREE_PENALTY)
+    #loss = loss * (1 if graph.number_of_nodes() == n_nodes else N_NODES_PENALTY)
+    
+    loss = loss + (0 if is_tree(graph) else 1000)
+    
     return loss
     
 
@@ -93,20 +98,20 @@ def save_model(model):
     
 def train():
     batch_size = 1
-    epochs = 100
-    e = 1
+    epochs = 1000
+    e = 100
     eps = 1e-15
     device = 0 if torch.cuda.is_available() else 'cpu'
     
     encoder = Encoder().to(device)
-    decoder = Decoder(hidden_dim=16, feature_dim=1).to(device)
+    decoder = Decoder().to(device)
     
 
     tr_loader = GraphDataset()
     train_loader = DataLoader(tr_loader, batch_size=batch_size)
 
-    optimizer_encoder = torch.optim.Adam(encoder.parameters(), lr=0.01)
-    optimizer_decoder = torch.optim.Adam(decoder.parameters(), lr=0.01)
+    optimizer_encoder = torch.optim.Adam(encoder.parameters(), lr=0.001)
+    optimizer_decoder = torch.optim.Adam(decoder.parameters(), lr=0.001)
     
     train_loss = []
     val_loss = []
@@ -143,27 +148,29 @@ def train():
             reward = 0
             
             node_set = set()
-            starting_node = None
             
-            '''
-            if epoch % e == 0:
-                print("Original Graph:")
-                show_graph(to_networkx(graph, to_undirected=True))
-                print("LineGraph:")
-                show_graph(to_networkx(linegraph, to_undirected=True))
-            '''
+            starting_node = encoded_features.argmax(dim=0).squeeze()
+            u = int(line_graph_nodes[starting_node][0])
+            v = int(line_graph_nodes[starting_node][1])
+            G = add_nodes_in_graph(G, u, v, linegraph.x[starting_node])
+            node_set.add(int(starting_node))
             
-            for i in range(n_nodes-1):
+            previous_node = None
+            
+            
+            for i in range(n_nodes-2):
                 
-                next_node, out, node_set = decoder(encoded_features, linegraph.edge_index, node_set, line_graph_nodes, starting_node)
+                out, next_node = decoder(encoded_features, node_set, starting_node, previous_node)
                 
                 # once we have next node we make it our starting node and begin the algorithm all over again
-                starting_node = next_node
+                previous_node = next_node
+                
+                node_set.add(int(next_node))
                 
                 # add edge between nodes in primal to constructed tree
-                u = int(line_graph_nodes[starting_node][0])
-                v = int(line_graph_nodes[starting_node][1])
-                G = add_nodes_in_graph(G, u, v, graph.weight[starting_node])
+                u = int(line_graph_nodes[next_node][0])
+                v = int(line_graph_nodes[next_node][1])
+                G = add_nodes_in_graph(G, u, v, linegraph.x[next_node])
                 
                 #reward += calc_reward(G, n_nodes)
                 reward += G[u][v]['weight'] #* (100 if((u in node_set) and (v in node_set)) else 1)
@@ -194,7 +201,6 @@ def train():
             reward = 0
             
             node_set = set()
-            starting_node = None
             
             with torch.no_grad():
                 # total number of nodes in primal graph
@@ -206,25 +212,28 @@ def train():
                 # create an empty graph
                 G = nx.Graph()
                 
-                '''
-                if epoch % e == 0:
-                    print("Original Graph:")
-                    show_graph(to_networkx(graph, to_undirected=True))
-                    print("LineGraph:")
-                    show_graph(to_networkx(linegraph, to_undirected=True))
-                '''
+                starting_node = encoded_features.argmax(dim=0).squeeze()
+                u = int(line_graph_nodes[starting_node][0])
+                v = int(line_graph_nodes[starting_node][1])
+                G = add_nodes_in_graph(G, u, v, linegraph.x[starting_node])
+                node_set.add(int(starting_node))
                 
-                for i in range(n_nodes-1):
+                previous_node = None
+            
                 
-                    next_node, out, node_set = decoder(encoded_features, linegraph.edge_index, node_set, line_graph_nodes, starting_node)
+                for i in range(n_nodes-2):
+                
+                    out, next_node = decoder(encoded_features, node_set, starting_node, previous_node)
 
                     # once we have next node we make it our starting node and begin the algorithm all over again
-                    starting_node = next_node
-
+                    previous_node = next_node
+                    
+                    node_set.add(int(next_node))
+                    
                     # add edge between nodes in primal to constructed tree
-                    u = int(line_graph_nodes[starting_node][0])
-                    v = int(line_graph_nodes[starting_node][1])
-                    G = add_nodes_in_graph(G, u, v, graph.weight[starting_node])
+                    u = int(line_graph_nodes[next_node][0])
+                    v = int(line_graph_nodes[next_node][1])
+                    G = add_nodes_in_graph(G, u, v, linegraph.x[next_node])
                     
                     #reward += calc_reward(G, n_nodes)
                     reward += G[u][v]['weight'] #* (100 if((u in node_set) and (v in node_set)) else 1)

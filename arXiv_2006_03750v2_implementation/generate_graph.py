@@ -1,14 +1,15 @@
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
+import numpy as np
 
 
 def gen_graph(n, m):
     graph = nx.gnm_random_graph(n, m)
-    max_weight = 100
+    #max_weight = 100
 
     for (u, v, w) in graph.edges(data=True):
-        w['weight'] = random.randint(1, max_weight)
+        w['weight'] = np.random.uniform(low=0, high=1)
 
     return graph
 
@@ -38,15 +39,15 @@ def create_graph_dataset():
     filename = None
 
     max_nodes = 10#100
-    min_nodes = 5
+    min_nodes = 10
 
 
     n_nodes = random.randint(min_nodes, max_nodes)
 
     max_edges = int(n_nodes * (n_nodes - 1) / 2)
-    min_edges = 2 * n_nodes
+    min_edges = n_nodes
 
-    n_edges = random.randint(min_edges, max_edges)
+    n_edges = 30#random.randint(min_edges, max_edges)
 
     graph = gen_graph(n_nodes, n_edges)
 
