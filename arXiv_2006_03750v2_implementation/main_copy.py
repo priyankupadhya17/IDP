@@ -11,6 +11,7 @@ from torch import nn
 from networkx.classes.function import number_of_nodes
 from networkx.linalg.graphmatrix import adjacency_matrix
 from networkx.algorithms.similarity import graph_edit_distance
+from torch.distributions.categorical import Categorical
 import os
 
 
@@ -50,12 +51,15 @@ def calc_optimality(mst, G, n_nodes, mst_wt):
     return optimality
 
 
-def loss_func(reward, prob, graph, n_nodes):
+def loss_func(reward, prob, graph, n_nodes, penalty):
     
     TREE_PENALTY = 10
     N_NODES_PENALTY = 5
     
-    loss = -torch.mean(reward * prob)
+    beta = 0.8
+
+    loss = -torch.mean(reward * prob + penalty)
+    
     
     #print(f"is_tree = {is_tree(graph)}")
     #print(f"graph.number_of_nodes() = {graph.number_of_nodes()}, n_nodes = {n_nodes}")
@@ -63,7 +67,10 @@ def loss_func(reward, prob, graph, n_nodes):
     #loss = loss * (1 if is_tree(graph) else TREE_PENALTY)
     #loss = loss * (1 if graph.number_of_nodes() == n_nodes else N_NODES_PENALTY)
     
-    loss = loss + (0 if is_tree(graph) else 1000)
+    #loss = loss + (0 if is_tree(graph) else 1000)
+    
+    #loss *= penalty
+    #loss += (0 if graph.number_of_nodes() == n_nodes else 1000)
     
     return loss
     
@@ -98,20 +105,22 @@ def save_model(model):
     
 def train():
     batch_size = 1
-    epochs = 1000
-    e = 100
+    epochs = 100
+    e = 1
     eps = 1e-15
     device = 0 if torch.cuda.is_available() else 'cpu'
     
     encoder = Encoder().to(device)
-    decoder = Decoder().to(device)
+    decoder1 = Decoder().to(device)
+    decoder2 = Decoder(final_layer = True).to(device)
     
 
     tr_loader = GraphDataset()
     train_loader = DataLoader(tr_loader, batch_size=batch_size)
 
     optimizer_encoder = torch.optim.Adam(encoder.parameters(), lr=0.001)
-    optimizer_decoder = torch.optim.Adam(decoder.parameters(), lr=0.001)
+    optimizer_decoder1 = torch.optim.Adam(decoder1.parameters(), lr=0.001)
+    optimizer_decoder2 = torch.optim.Adam(decoder2.parameters(), lr=0.001)
     
     train_loss = []
     val_loss = []
@@ -128,10 +137,12 @@ def train():
         for batch, (graph, linegraph, mst, line_graph_nodes, mst_wt) in enumerate(train_loader):
             
             encoder.train()
-            decoder.train()
+            decoder1.train()
+            decoder2.train()
             
-            optimizer_encoder.zero_grad()  # Clear gradients.
-            optimizer_decoder.zero_grad()  # Clear gradients.
+            optimizer_encoder.zero_grad()# Clear gradients.
+            optimizer_decoder1.zero_grad()# Clear gradients.
+            optimizer_decoder2.zero_grad()# Clear gradients.
             
             linegraph.x = linegraph.features.view(linegraph.num_nodes,-1).type(torch.float)
             
@@ -149,21 +160,34 @@ def train():
             
             node_set = set()
             
+            '''
             starting_node = encoded_features.argmax(dim=0).squeeze()
             u = int(line_graph_nodes[starting_node][0])
             v = int(line_graph_nodes[starting_node][1])
             G = add_nodes_in_graph(G, u, v, linegraph.x[starting_node])
             node_set.add(int(starting_node))
+            '''
             
+            starting_node = None
             previous_node = None
             
+            penalty = 0
             
-            for i in range(n_nodes-2):
+            for i in range(n_nodes-1):
                 
-                out, next_node = decoder(encoded_features, node_set, starting_node, previous_node)
+                out = decoder1(encoded_features, node_set, starting_node, previous_node, x=None)
+                probs = decoder2(encoded_features, node_set, starting_node, previous_node, x=out)
+                
+                # sample next node from probs
+                sampler = Categorical(probs)
+                next_node = sampler.sample()
+                #next_node = torch.argmax(probs, dim=0)
                 
                 # once we have next node we make it our starting node and begin the algorithm all over again
                 previous_node = next_node
+                
+                if(starting_node == None):
+                    starting_node = next_node
                 
                 node_set.add(int(next_node))
                 
@@ -172,18 +196,19 @@ def train():
                 v = int(line_graph_nodes[next_node][1])
                 G = add_nodes_in_graph(G, u, v, linegraph.x[next_node])
                 
-                #reward += calc_reward(G, n_nodes)
                 reward += G[u][v]['weight'] #* (100 if((u in node_set) and (v in node_set)) else 1)
-                logprobs += torch.log(out + eps).mean()
+                penalty += (0 if is_tree(G) else 10)
+                logprobs += torch.log(probs + eps)
                 
                 
-            loss = loss_func(reward, logprobs, G, n_nodes)
+            loss = loss_func(reward, logprobs, G, n_nodes, penalty)
             
             optimality_train.append(calc_optimality(mst,G,n_nodes, mst_wt))
             
             loss.backward()  # Derive gradients.
             optimizer_encoder.step()  # Update parameters based on gradients.
-            optimizer_decoder.step()  # Update parameters based on gradients.
+            optimizer_decoder1.step()  # Update parameters based on gradients.
+            optimizer_decoder2.step()  # Update parameters based on gradients.
             
             train_loss.append(loss.item())
             
@@ -193,7 +218,8 @@ def train():
         for batch, (graph, linegraph, mst, line_graph_nodes, mst_wt) in enumerate(train_loader):
             
             encoder.eval()
-            decoder.eval()
+            decoder1.eval()
+            decoder2.eval()
             
             linegraph.x = linegraph.features.view(linegraph.num_nodes,-1).type(torch.float)
             
@@ -212,21 +238,34 @@ def train():
                 # create an empty graph
                 G = nx.Graph()
                 
+                '''
                 starting_node = encoded_features.argmax(dim=0).squeeze()
                 u = int(line_graph_nodes[starting_node][0])
                 v = int(line_graph_nodes[starting_node][1])
                 G = add_nodes_in_graph(G, u, v, linegraph.x[starting_node])
                 node_set.add(int(starting_node))
+                '''
                 
+                starting_node = None
                 previous_node = None
-            
                 
-                for i in range(n_nodes-2):
+                penalty = 0
                 
-                    out, next_node = decoder(encoded_features, node_set, starting_node, previous_node)
+                for i in range(n_nodes-1):
+                
+                    out = decoder1(encoded_features, node_set, starting_node, previous_node, x=None)
+                    probs = decoder2(encoded_features, node_set, starting_node, previous_node, x=out)
+                    
+                    # sample next node from probs
+                    sampler = Categorical(probs)
+                    next_node = sampler.sample()
+                    #next_node = torch.argmax(probs, dim=0)
 
                     # once we have next node we make it our starting node and begin the algorithm all over again
                     previous_node = next_node
+                    
+                    if(starting_node == None):
+                        starting_node = next_node
                     
                     node_set.add(int(next_node))
                     
@@ -237,10 +276,11 @@ def train():
                     
                     #reward += calc_reward(G, n_nodes)
                     reward += G[u][v]['weight'] #* (100 if((u in node_set) and (v in node_set)) else 1)
-                    logprobs += torch.log(out + eps).mean()
+                    penalty += (0 if is_tree(G) else 10)
+                    logprobs += torch.log(probs + eps)
                     
                 
-            loss = loss_func(reward, logprobs, G, n_nodes)
+            loss = loss_func(reward, logprobs, G, n_nodes, penalty)
             
             optimality_val.append(calc_optimality(mst,G,n_nodes, mst_wt))
             
@@ -264,7 +304,17 @@ def train():
         if epoch % e == 0:
             save_model(encoder)
         '''
-    print(f"optimality_val = {optimality_val}")
+    #print(f"optimality_val = {optimality_val}")
+    
+    optimality_avg = torch.tensor(optimality_val)
+    
+    print("#####################################################")
+    print("Final Report")
+    print(f"Total Number of Different Graphs = {epochs}")
+    print(f"Total Number of MST's = {len(torch.where(optimality_avg > 0)[0])}")
+    print(f"Avg Optimality of generated MST's = {optimality_avg[torch.where(optimality_avg > 0)[0]].mean(dim=0)}")
+    print("#####################################################")
+    
     
     return train_loss, val_loss
 
