@@ -12,30 +12,43 @@ class Encoder(Module):
     def __init__(self):
         super(Encoder, self).__init__()
         
-        self.hidden_dim = 16
+        self.hidden_dim = 128
         
-        self.gat = GAT(in_channels=1, hidden_channels=int(self.hidden_dim / 2), num_layers=3, out_channels=self.hidden_dim)
-        self.g1 = GCNConv(in_channels=1, out_channels=3)
-        self.g2 = GCNConv(in_channels=3, out_channels=1)
+        self.gat = GAT(in_channels=1, hidden_channels=int(self.hidden_dim / 2), num_layers=2, out_channels=self.hidden_dim)
+        self.g1 = GCNConv(in_channels=1, out_channels=int(self.hidden_dim / 2))
+        self.g2 = GCNConv(in_channels=int(self.hidden_dim / 2), out_channels=self.hidden_dim)
         self.ReLU = ReLU(inplace=True)
         self.LeakyReLU = LeakyReLU(negative_slope=0.01, inplace=False)
         self.sigmoid = Sigmoid()
-        self.softmax = Softmax(dim=0)
+        self.softmax = Softmax(dim=1)
+        #self.softmax = Softmax(dim=0)
+        self.linear1 = Linear(in_features=1, out_features=self.hidden_dim)
+        self.linear2 = Linear(in_features=self.hidden_dim, out_features=self.hidden_dim)
     
     
     def forward(self, x, edge_index):
-        #print("features to encode")
-        #print(x)
         
-        x = self.gat(x, edge_index)
-        #x = self.g1(x, edge_index)
-        #x = self.ReLU(x)
-        #x = self.g2(x, edge_index)
-        #x = self.softmax(x)
+        '''
+        x = [n_nodes]
+        '''
         
-        #print("gat output")
-        #print(x)
-        return x
+        #[n_nodes x hidden_dim]
+        x1 = self.gat(x, edge_index)
+        
+        #[n_nodes x hidden_dim]
+        x1 = self.linear2(x1)
+        
+        #[n_nodes x hidden_dim]
+        x2 = self.linear1(x)
+        
+        #[n_nodes x hidden_dim]
+        out = x2 + self.ReLU(x1)
+        
+        #print("encoder output")
+        #print(out)
+        return out
+        
+        
 
     
 class Decoder(Module):
@@ -46,7 +59,7 @@ class Decoder(Module):
         
         self.const = 10
         
-        self.hidden_dim = 16
+        self.hidden_dim = 128
         
         self.feature_dim = 1
         
@@ -54,12 +67,6 @@ class Decoder(Module):
         
         #dim of [x.mean(), x[starting_node], x[previous_node]]
         self.x_concat_dim = 3
-        
-        #self.Wq = Parameter(torch.randn(self.x_concat_dim, self.hidden_dim))
-        #self.Wk = Parameter(torch.randn(self.feature_dim, self.hidden_dim))
-        #self.Wv = Parameter(torch.randn(self.feature_dim, self.hidden_dim))
-        
-        #self.Wo = Parameter(torch.randn(self.feature_dim, self.hidden_dim))
         
         self.Wq = torch.FloatTensor(self.x_concat_dim * self.hidden_dim, self.hidden_dim)
         self.Wq  = nn.Parameter(self.Wq)
@@ -76,12 +83,6 @@ class Decoder(Module):
         self.Wo = torch.FloatTensor(self.hidden_dim, self.hidden_dim)
         self.Wo  = nn.Parameter(self.Wo)
         self.Wo.data.uniform_(-1/math.sqrt(self.hidden_dim), 1/math.sqrt(self.hidden_dim))
-        
-        '''
-        self.Wo = torch.FloatTensor(self.feature_dim, self.hidden_dim)
-        self.Wo  = nn.Parameter(self.Wo)
-        self.Wo.data.uniform_(-1/math.sqrt(self.hidden_dim), 1/math.sqrt(self.hidden_dim))
-        '''
         
         self.starting_node_W = torch.FloatTensor(self.hidden_dim)
         self.starting_node_W = nn.Parameter(self.starting_node_W)
@@ -103,17 +104,14 @@ class Decoder(Module):
         '''
         
     
-    def forward(self, X, nodes_visited, starting_node=None, previous_node=None, x=None,):
+    def forward(self, X, nodes_visited, starting_node=None, previous_node=None, x=None):
         
         '''
         X = n_nodes x hidden_dim
-        x = X.mean(dim=0) for 1st run, out of previous decoder for 2nd run => for both cases [128]
+        x = X.mean(dim=0) for 1st run, out of previous decoder for 2nd run => for both cases [hidden_dim]
         '''
         
         n_nodes = X.shape[0]
-        
-        if self.final_layer != True:
-            x = X.mean(dim=0).squeeze()
         
         if starting_node == None:
             
@@ -126,7 +124,8 @@ class Decoder(Module):
             #[hidden_dim]
             starting_node_features = X[starting_node]
             previous_node_features = X[previous_node]
-            
+        
+        #x = x.view(-1,)
         # [3*hidden_dim]
         features_concat = torch.cat([x, starting_node_features, previous_node_features])
         
@@ -159,6 +158,8 @@ class Decoder(Module):
             
             #[n_nodes]
             out = F.softmax(out, dim=0)
+            #print(mask)
+            #print(out)
         
         else:
             
@@ -174,59 +175,5 @@ class Decoder(Module):
             #[hidden_dim]
             out = out.view(-1)
         
-        return out
-        
-        '''
-        # a = [1 x n_nodes]
-        #a = F.softmax(u + mask, dim=1)
-        #a = F.softmax(u, dim=0)
-        a = torch.tanh(u + mask)
-        
-        # [1x n_nodes].[n_nodes x 16] = [1 x 16]
-        h = torch.matmul(a, v)
-        
-        #[16]
-        h = h.squeeze()
-        
-        #[16]
-        out = self.linear(h)
-        
-        #[1 x 16]
-        out = torch.unsqueeze(out, dim=0)
-        
-        # [n_nodes x 1].[1 x 16] = [n_nodes x 16]
-        wts = torch.matmul(x, self.Wo)
-        
-        # [n_nodes x 16].[16 x 1] = [n_nodes x 1]
-        out = torch.matmul(wts, out.T)
-        
-        #[n_nodes]
-        out = out.squeeze()
-        
-        probs = F.softmax(out + mask.squeeze(), dim=0)
-        '''
-        
-        '''
-        
-        #[1 x n_nodes]
-        probs = self.C * torch.tanh(u) + mask
-        
-        #[n_nodes]
-        probs = probs.squeeze()
-        
-        probs = F.softmax(probs, dim=0)
-        
-        '''
-        
-        #print(probs)
-        
-        #next_node = probs.argmax(dim=0)
-        
-        '''
-        sampler = Categorical(probs)
-        next_node = sampler.sample()
-        
-        return probs, next_node
-        '''
-        
+        return out        
         

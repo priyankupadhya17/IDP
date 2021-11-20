@@ -9,7 +9,7 @@ def gen_graph(n, m):
     #max_weight = 100
 
     for (u, v, w) in graph.edges(data=True):
-        w['weight'] = np.random.uniform(low=0, high=1)
+        w['weight'] = np.random.uniform(low=0.0, high=1.0)
 
     return graph
 
