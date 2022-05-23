@@ -34,7 +34,7 @@ def output_edge_list(graph, filename):
                 print(u, v, w['weight'], file=fout)
 
 
-def create_graph_dataset():
+def create_graph_dataset(n_nodes, n_edges):
     #filename = "graph_dataset.txt"
     filename = None
 
@@ -42,12 +42,12 @@ def create_graph_dataset():
     min_nodes = 10
 
 
-    n_nodes = random.randint(min_nodes, max_nodes)
+    #n_nodes = random.randint(min_nodes, max_nodes)
 
     max_edges = int(n_nodes * (n_nodes - 1) / 2)
     min_edges = n_nodes
 
-    n_edges = 35#random.randint(min_edges, max_edges)
+    #n_edges = 35#random.randint(min_edges, max_edges)
 
     graph = gen_graph(n_nodes, n_edges)
 

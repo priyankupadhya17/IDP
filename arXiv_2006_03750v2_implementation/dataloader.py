@@ -7,14 +7,17 @@ from generate_graph import create_graph_dataset
 
 
 class GraphDataset(Dataset):
-    def __init__(self, root=None, transform=None, pre_transform=None):
+    def __init__(self, n_nodes, n_edges, root=None, transform=None, pre_transform=None):
         super().__init__(root, transform, pre_transform)
+
+        self.n_nodes = n_nodes
+        self.n_edges = n_edges
 
     def len(self):
         return 1
 
     def get(self, idx):
-        graph, linegraph, mst, line_graph_nodes = create_graph_dataset()
+        graph, linegraph, mst, line_graph_nodes = create_graph_dataset(self.n_nodes, self.n_edges)
         
         # target_entropy = 1 if edge included in MST else 0
         target_entropy = torch.zeros(len(line_graph_nodes))
@@ -26,6 +29,8 @@ class GraphDataset(Dataset):
                 if line_graph_nodes[i] == (u, v):
                     target_entropy[i] = 1
                     break
+        
+        mst_wt = torch.tensor(mst_wt, requires_grad=True)
         
         graph_from_networkx = from_networkx(graph)
         linegraph_from_networkx = from_networkx(linegraph) 
